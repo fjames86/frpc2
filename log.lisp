@@ -4,6 +4,7 @@
 (in-package #:frpc2)
 
 (defvar *frpc2-log* nil)
+(defvar *frpc2-log-levels* nil)
 
 (defun open-log (&optional pathname)
   "Open the log. If PATHNAME is provided will be opened, otherwise uses the default."
@@ -12,7 +13,7 @@
           (pounds.log:open-log
 	   :path (or pathname
 		     (merge-pathnames "frpc2.log" (user-homedir-pathname)))
-	   :tag "FRPC2"))))
+	   :tag "FPC2"))))
 
 (defun close-log ()
   "Close the log."
@@ -22,7 +23,10 @@
   
 (defun frpc2-log (lvl format-string &rest args)
   "Write into the debug log."
-  (when *frpc2-log*
+  (when (and *frpc2-log*
+	     (or (null *frpc2-log-levels*)
+		 (member lvl *frpc2-log-levels*)))
     (pounds.log:write-message *frpc2-log*
 			      lvl
 			      (apply #'format nil format-string args))))
+  

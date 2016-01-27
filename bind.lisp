@@ -46,22 +46,49 @@
   (callit% callit-arg callit-res))
 
 ;; define a somewhat nicer wrapping function for CALLIT 
-(defun call-rpcbind-callit (client arg res-decoder)
-  (let ((results (call-rpcbind-callit% client arg)))
-    (flet ((decode-result (res)
-	     (destructuring-bind (port (buff start end)) res
-	       (let ((blk (make-xdr-block :buffer buff
-					  :offset start
-					  :count end)))
-		 (list port (funcall res-decoder blk))))))
-      (if (typep client 'broadcast-client)
-	  ;; broadcast clients return a list of (reply-addres result)* 
-	  (mapcar (lambda (r)
-		    (destructuring-bind (raddr res) r
-		      (list raddr (decode-result res))))
-		  results)
-	  ;; everything else just returns result 
-	  (decode-result results)))))
+(defun call-rpcbind-callit (client arg-encoder arg res-decoder program version proc)
+  "Execute an RPC on the remote machine, proxyinb the call via the 
+rpcbind service. 
+CLIENT ::= rpc client to send the call with.
+ARG-ENCODER ::= DrX XDR encoder function.
+ARG ::= value to pass to ARG-ENCODER.
+RES-DECODER ::= DrX XDR decoder function.
+PROGRAM, VERSION, PROC ::= the procedure to invoke.
+
+This function makes it possible to call a procedure without knowing the port
+number to contact the program on (or even if the program exists). Its primary
+use is to broadcast calls on the local network, facilitating 
+e.g. service discovery.
+
+The rpcbind service is silent if an error occurs.
+
+The RPC is invoked on the remote host using the UDP protocol.
+
+No authentication is possible."
+  (let ((blk (xdr-block (* 8 1024))))
+    ;; encode the argument data 
+    (funcall arg-encoder blk arg)
+    (let ((carg (make-callit-arg :program program
+				 :version version
+				 :proc proc
+				 :args (list (xdr-block-buffer blk)
+					     0
+					     (xdr-block-offset blk)))))
+      (let ((results (call-rpcbind-callit% client carg)))
+	(flet ((decode-result (res)
+		 (destructuring-bind (port (buff start end)) res
+		   (let ((blk (make-xdr-block :buffer buff
+					      :offset start
+					      :count end)))
+		     (list port (funcall res-decoder blk))))))
+	  (if (typep client 'broadcast-client)
+	      ;; broadcast clients return a list of (reply-addres result)* 
+	      (mapcar (lambda (r)
+			(destructuring-bind (raddr res) r
+			  (list raddr (decode-result res))))
+		      results)
+	      ;; everything else just returns result 
+	      (decode-result results)))))))
 
 (defconstant +rpcbind-port+ 111)
 

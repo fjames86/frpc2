@@ -62,7 +62,8 @@ provider wishes the server to be silent and not send a reply, this function retu
 	  (multiple-value-bind (rverf provider pcxt) (authenticate-rpc-call msg (rpc-server-providers server) blk)
 	    (setf (rpc-server-provider-context server) pcxt
 		  (rpc-server-auth-flavour server)
-		  (opaque-auth-flavour (call-body-auth (rpc-msg-body msg))))
+		  (opaque-auth-flavour (call-body-auth (xunion-val
+							(rpc-msg-body msg)))))
 	    (destructuring-bind (fn arg-decoder res-encoder) (find-rpc-handler (rpc-server-programs server) msg)
 	      
 	      ;; allow provider to modify call
