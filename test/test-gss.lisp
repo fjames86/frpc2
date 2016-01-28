@@ -15,7 +15,7 @@
   (format t "ARG: ~A~%" arg)
   arg)
 
-(define-rpc-interface testprog (123321 1 t)
+(define-rpc-interface testprog (123321 1)
   (null :void :void)
   (proc1 :opaque :opaque))
 

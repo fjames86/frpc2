@@ -147,8 +147,7 @@ XID ::= if supplied, waiters for this XID will be purged.
   (cond
     ((null (tcp-pollfd-count pollfd))
      ;; no fragment count, read that first
-     (let* ((fblk (make-xdr-block :buffer (make-array 4 :element-type '(unsigned-byte 8) :initial-element 0)
-                                  :count 4))
+     (let* ((fblk (xdr-block 4))
             (rcnt (fsocket:socket-recv (fsocket:pollfd-fd pollfd)
                                        (xdr-block-buffer fblk)
                                        :start 0
@@ -159,7 +158,7 @@ XID ::= if supplied, waiters for this XID will be purged.
 	  (frpc2-log :trace "Graceful close")
           (fsocket:close-socket (fsocket:pollfd-fd pollfd))
           (fsocket:poll-unregister (simple-rpc-server-pc server) pollfd))
-         (t 
+         (t
           (let ((rcount (decode-uint32 fblk)))
             (setf (tcp-pollfd-count pollfd) (logand rcount #x7fffffff)
                   (tcp-pollfd-last pollfd) (not (zerop (logand rcount #x80000000)))))))))
@@ -185,12 +184,15 @@ XID ::= if supplied, waiters for this XID will be purged.
             (cond
               ((tcp-pollfd-last pollfd)
                (setf (xdr-block-count blk) (xdr-block-offset blk)
-                     (xdr-block-offset blk) 0)
+                     (xdr-block-offset blk) 0
+		     (tcp-pollfd-count pollfd) nil
+		     (tcp-pollfd-last pollfd) nil)
                (let ((msg (decode-rpc-msg blk)))
                  (setf (simple-rpc-server-msg server) msg
                        (simple-rpc-server-rpfd server) pollfd)
                  (ecase (xunion-tag (rpc-msg-body msg))
-                   (:call (frpc2-log :info "CALL TCP ~A:~A ~A:~A:~A" 
+                   (:call (frpc2-log :info "[~A] CALL TCP ~A:~A ~A:~A:~A"
+				     (rpc-msg-xid msg)
 				     (fsocket:sockaddr-in-addr (tcp-pollfd-addr pollfd)) 
 				     (fsocket:sockaddr-in-port (tcp-pollfd-addr pollfd))
 				     (call-body-program (xunion-val (rpc-msg-body msg))) 
@@ -199,11 +201,8 @@ XID ::= if supplied, waiters for this XID will be purged.
 
 			  (when (process-rpc-call server blk msg)
                             ;; send the fragment header
-                            (let ((hblk (make-xdr-block :buffer (make-array 4
-                                                                            :element-type '(unsigned-byte 8)
-                                                                            :initial-element 0)
-                                                        :count 4)))
-                              (encode-uint32 hblk (logior (xdr-block-offset blk) #x80000000))
+                            (let ((hblk (xdr-block 4)))
+                              (encode-uint32 hblk (logior (xdr-block-count blk) #x80000000))
 			      ;; TODO: check for a short write
                               (fsocket:socket-send (fsocket:pollfd-fd pollfd)
                                                    (xdr-block-buffer hblk)
@@ -212,8 +211,10 @@ XID ::= if supplied, waiters for this XID will be purged.
 			    ;; TODO: check for a short write 
                             (fsocket:socket-send (fsocket:pollfd-fd pollfd)
                                                  (xdr-block-buffer blk)
-                                                 :start 0 :end (xdr-block-offset blk))))
-                   (:reply (frpc2-log :info "CALL TCP ~A:~A" 
+                                                 :start 0 :end (xdr-block-count blk))
+			    (reset-xdr-block blk)))
+                   (:reply (frpc2-log :info "[~A] REPLY TCP ~A:~A"
+				      (rpc-msg-xid msg)
 				      (fsocket:sockaddr-in-addr (tcp-pollfd-addr pollfd)) 
 				      (fsocket:sockaddr-in-port (tcp-pollfd-addr pollfd)))
 			   (process-simple-rpc-server-reply server (rpc-msg-xid msg) blk)))))

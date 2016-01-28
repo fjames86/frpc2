@@ -29,4 +29,4 @@
   ()
   (:report (lambda (c stream)
              (declare (ignore c))
-             (format stream "RPC-TIMEOUT-ERROR: timed out waiting for a response"))))
+             (format stream "RPC-TIMEOUT-ERROR: Timeout waiting for a reply"))))

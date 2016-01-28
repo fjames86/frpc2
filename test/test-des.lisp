@@ -11,7 +11,7 @@
   (declare (ignore server arg))
   nil)
 
-(define-rpc-interface testprog (123321 1 t)
+(define-rpc-interface testprog (123321 1)
   (null :void :void))
 
 

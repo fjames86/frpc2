@@ -43,7 +43,7 @@ SERVER-MODIFY-REPLY or a procedure handler.
 
 Control is immediately returned so that the server will not send a reply to the client. This allows 
 authentication providers and procedure handlers to be silent rather than sending replies."
-  (frpc2-log :trace "Discard call")
+  (frpc2-log :trace "Discarding call")
   (throw 'rpc-discard-call nil))
 
 (defun process-rpc-call (server blk msg)

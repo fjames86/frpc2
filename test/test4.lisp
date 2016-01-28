@@ -22,7 +22,7 @@
   (declare (ignore server))
   (* x x))
 
-(define-rpc-interface myprogram (123456 1 t)
+(define-rpc-interface myprogram (123456 1)
   (null :void :void)
   (add1 :int32 :int32)
   (sub1 :int32 :int32)

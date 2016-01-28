@@ -40,9 +40,9 @@
 
 ;; the client sends this to the server in the first request
 (drx:defxstruct authdes-fullname ((:mode :plist))
-  (:name :string)
-  (:key :opaque) ;; encrypted conversation key
-  (:window des-window)) ;; encrypted window
+  (name :string)
+  (key :opaque) ;; encrypted conversation key
+  (window des-window)) ;; encrypted window
 
 (drx:defxunion authdes-cred ((:enum authdes-namekind))
   (:fullname authdes-fullname) ;; only used in the first request
@@ -228,10 +228,11 @@ INITIAL should be T. Otherwise INITIAL should be nil."
 	    (blk2 (make-auth-block)))
 	(encode-authdes-cred blk2 
 			     (drx:make-xunion :fullname 
-					      (list :name name 
-						    :key (dh-encrypt-conversation-key common conversation)
-						    ;; CHECKME
-						    :window (subseq v 8 12))))
+					      (make-authdes-fullname
+					       :name name 
+					       :key (dh-encrypt-conversation-key common conversation)
+					       ;; CHECKME
+					       :window (subseq v 8 12))))
 	(make-opaque-auth :flavour :auth-des 
 			  :data (list (drx:xdr-block-buffer blk2) 0 (drx:xdr-block-offset blk2)))))))
 
@@ -431,19 +432,19 @@ INITIAL should be T. Otherwise INITIAL should be nil."
   "This runs on the server and validates the initial client request. Returns a server verifier."
   (etypecase auth
     (list ;; authdes-fullname 
-     (let* ((public (or (find-public-key (getf auth :name))
-			(error "No public key for ~A" (getf auth :name))))
+     (let* ((public (or (find-public-key (getf auth 'name))
+			(error "No public key for ~A" (getf auth 'name))))
 	    (common (dh-common-key (des-provider-secret p) public)))
        ;; start by getting the converation key from the authenticator
        (let ((conversation (concatenate '(vector (unsigned-byte 8))
 					(dh-decrypt-conversation-key common 
 								     (concatenate '(vector (unsigned-byte 8))
-										  (getf auth :key))))))
+										  (getf auth 'key))))))
 	 ;; now form the block and decrypt it
 	 (let* ((v (dh-decrypt (make-dh-cipher conversation t)
 			       (concatenate '(vector (unsigned-byte 8))
 					    (authdes-verf-client-adv-timestamp verf)
-					    (getf auth :window)
+					    (getf auth 'window)
 					    (authdes-verf-client-adv-winverf verf))))
 		(blk (drx:make-xdr-block :buffer v :count (length v))))
 	   ;; unpack it 
@@ -453,7 +454,7 @@ INITIAL should be T. Otherwise INITIAL should be nil."
 	       (if (and (< (abs (- (getf timestamp 'seconds) ts)) window)
 			(= winverf (1- window)))
 		 (let ((context (add-des-context p
-						 (getf auth :name)
+						 (getf auth 'name)
 						 timestamp
 						 conversation
 						 window)))

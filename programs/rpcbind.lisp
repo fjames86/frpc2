@@ -152,12 +152,26 @@ Typical values might be 5 minutes.")
         (drx:reset-xdr-block blk)
 	(encode-rpc-msg blk (make-rpc-reply rxid :success))
 	(encode-callit-res blk res)
-        ;; send back, rpfd MUST be a udp pollfd
-        (fsocket:socket-sendto (fsocket:pollfd-fd rpfd)
-                               (drx:xdr-block-buffer blk)
-                               raddr 
-                               :start 0 :end (drx:xdr-block-offset blk)))))
-  nil)
+	(etypecase rpfd
+	  (udp-pollfd
+	   (rpcbind-log :trace "Replying to UDP client")
+	   (fsocket:socket-sendto (fsocket:pollfd-fd rpfd)
+				  (drx:xdr-block-buffer blk)
+				  raddr 
+				  :start 0 :end (drx:xdr-block-offset blk)))
+	  (tcp-pollfd
+	   (rpcbind-log :trace "Replying to TCP client")
+	   ;; need to send the byte count first
+	   (let ((cblk (drx:xdr-block 4)))
+	     (drx:encode-uint32 cblk (logior (drx:xdr-block-offset blk) #x80000000))
+	     (let ((cnt (fsocket:socket-send (fsocket:pollfd-fd rpfd)
+					     (drx:xdr-block-buffer cblk))))
+	       (unless (= cnt 4) (rpcbind-log :trace "Short write"))))
+	   (let ((cnt (fsocket:socket-send (fsocket:pollfd-fd rpfd)
+					   (drx:xdr-block-buffer blk)
+					   :start 0 :end (drx:xdr-block-offset blk))))
+	     (unless (= cnt (drx:xdr-block-offset blk)) (rpcbind-log :trace "Short write"))))))))
+    nil)
 
 (defun handle-rpcbind-callit (server arg)
   ;; packup and send the arg to the program handler
@@ -207,7 +221,11 @@ Typical values might be 5 minutes.")
 
 	  (rpcbind-log :info "Awaiting reply for ~A" xid)
 	  (simple-rpc-server-await-reply server xid #'process-callit-reply
-					 :context (list (udp-pollfd-addr pfd) xid pfd))))))
+					 :context (list (etypecase pfd
+							  (udp-pollfd (udp-pollfd-addr pfd))
+							  (tcp-pollfd (tcp-pollfd-addr pfd)))
+							xid
+							(simple-rpc-server-rpfd server)))))))
     
   ;; we don't actually want to exit this function normally because otherwise
   ;; we'd need to block waiting for a reply. 

@@ -318,7 +318,7 @@ Returns (values result xid)."
 
 
 (defmethod rpc-client-close ((tcp tcp-client))
-  (fsocket:socket-shutdown (tcp-client-fd tcp))
+  (fsocket:socket-shutdown (tcp-client-fd tcp) :both)
   (fsocket:close-socket (tcp-client-fd tcp))
   (fsocket:close-poll (tcp-client-pc tcp)))
 
@@ -334,13 +334,15 @@ Returns (values result xid)."
     ;; we need to send a fragment count first with the terminal bit set
     (encode-uint32 cblk (logior (xdr-block-offset blk) #x80000000))
     ;; TODO: check for a short write 
-    (fsocket:socket-send (tcp-client-fd tcp) (xdr-block-buffer cblk))
+    (let ((cnt (fsocket:socket-send (tcp-client-fd tcp) (xdr-block-buffer cblk))))
+      (unless (= cnt 4) (error "Short write")))
     
     ;; send the fragment payload.
     ;; TODO: check for short write 
-    (fsocket:socket-send (tcp-client-fd tcp) (xdr-block-buffer blk)
-			 :start 0 :end (xdr-block-offset blk))
-
+    (let ((cnt (fsocket:socket-send (tcp-client-fd tcp) (xdr-block-buffer blk)
+				    :start 0 :end (xdr-block-offset blk))))
+      (unless (= cnt (xdr-block-offset blk)) (error "Short write")))
+	    
     (let ((start 0))
       (flet ((recv-fragment-count ()
 	       ;; Read the fragment header which is a 4-octet BE uint32. If the high bit (0x80000000) is
@@ -349,7 +351,8 @@ Returns (values result xid)."
 	       (unless (fsocket:poll (tcp-client-pc tcp) :timeout (tcp-client-timeout tcp))
 		 (error 'rpc-timeout-error))
 	       ;; TODO: check for a short read 
-	       (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer cblk))
+	       (let ((cnt (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer cblk))))
+		 (when (zerop cnt) (error "Graceful close")))
 	       (setf (xdr-block-offset cblk) 0)
 	       (decode-uint32 cblk))
 	     (recv-fragment (count)
@@ -364,6 +367,7 @@ Returns (values result xid)."
 		   (error 'rpc-error :msg "Short buffer"))
 		 (let ((c (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer blk)
 					       :start start)))
+		   (when (zerop c) (error "Graceful close"))
 		   (incf cnt c)
 		   (incf start c)))))
 	
