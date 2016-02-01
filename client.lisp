@@ -476,7 +476,7 @@ ARG-TYPE, RES-TYPE ::= symbols naming DrX XDR types."
 		    rpcs))))
 
 (defmacro define-rpc-server (name (program version &rest options) &rest rpcs)
-  `(defun ,name ()
+  `(defun ,(drx::symbolicate 'make- name '-program) ()
      (list ,program ,version 
 	   (list ,@(mapcan (lambda (rpc)
 			     (destructuring-bind (rpc-name arg-type res-type &rest roptions) rpc
@@ -514,7 +514,7 @@ and decoders have been defined. Note that only the arg encoder and res decoder a
      (define-rpc-client ,name (,program ,version ,@options) ,@rpcs)
      (define-rpc-server ,name (,program ,version ,@options) ,@rpcs)))
 
-(defmacro declare-rpc-interface (name (program version &rest options) &rest rpcs)
+(defmacro declare-rpc-interface (name (program version) &rest rpcs)
   "Declare the existence of an RPC interface, but don't actually define it yet.
  This defines a macro DEFINE-<name>-INTERFACE which can be used to define 
 clients and servers at a later state. 
@@ -522,7 +522,7 @@ This is useful for servers which put their handler functions in a separate file
 to the client interface. You can declare it first and define the client and 
 server separately."
   `(progn
-     (defmacro ,(drx::symbolicate 'define- name '-client) ()
-       `(define-rpc-client ,',name (,',program ,',version ,@',options) ,@',rpcs))
-     (defmacro ,(drx::symbolicate 'define- name '-server) ()
-       `(define-rpc-server ,',name (,',program ,',version ,@',options) ,@',rpcs))))
+     (defmacro ,(drx::symbolicate 'define- name '-client) (&rest options)
+       `(define-rpc-client ,',name (,',program ,',version ,@options) ,@',rpcs))
+     (defmacro ,(drx::symbolicate 'define- name '-server) (&rest options)
+       `(define-rpc-server ,',name (,',program ,',version ,@options) ,@',rpcs))))

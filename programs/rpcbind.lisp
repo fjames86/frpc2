@@ -324,7 +324,7 @@ Typical values might be 5 minutes.")
 
 (defun start-rpcbind ()
   (unless *server*
-    (setf *server* (simple-rpc-server-construct (list (rpcbind))
+    (setf *server* (simple-rpc-server-construct (list (make-rpcbind-program))
 						:udp-ports '(111)
 						:tcp-ports '(111)))
 
