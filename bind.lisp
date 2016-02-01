@@ -143,7 +143,7 @@ Returns a list of MAPPING structures."
     (with-rpc-client (c udp-client :addr sin)
       (call-rpcbind-dump c))))
 
-(defun get-rpc-hosts (program version &optional (protocol :udp))
+(defun get-rpc-hosts (&optional program version (protocol :udp))
   "Find a list of hosts for the specified program by broadcasting 
 to the rpcbind service. 
 PROGRAM, VERSION ::= integers specifying the program.
@@ -157,17 +157,22 @@ local network address 255.255.255.255."
   (with-rpc-client (c broadcast-client
 		      :addr (fsocket:sockaddr-in #(255 255 255 255)
 						 +rpcbind-port+))
-    (let ((results (call-rpcbind-getport c
-					 (make-mapping :program program
-						       :version version
-						       :protocol protocol
-						       :port 0))))
-      (mapcan (lambda (r)
-		(destructuring-bind (raddr port) r
-		  (unless (zerop port)
-		    (setf (fsocket:sockaddr-in-port raddr) port)
-		    (list raddr))))
-	      results))))
+    (cond
+      ((and program version)
+       (let ((results (call-rpcbind-getport c
+					    (make-mapping :program program
+							  :version version
+							  :protocol protocol
+							  :port 0))))
+	 (mapcan (lambda (r)
+		   (destructuring-bind (raddr port) r
+		     (unless (zerop port)
+		       (setf (fsocket:sockaddr-in-port raddr) port)
+		       (list raddr))))
+		 results)))
+      (t
+       (let ((results (call-rpcbind-null c)))
+	 (mapcar #'car results))))))
 
 
 ;; ------------- RPCBIND versions 3 and 4 -------------------
