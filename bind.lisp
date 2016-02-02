@@ -172,7 +172,9 @@ local network address 255.255.255.255."
 		 results)))
       (t
        (let ((results (call-rpcbind-null c)))
-	 (mapcar #'car results))))))
+	 (mapcar (lambda (r) 
+		   (fsocket:sockaddr-in-addr (car r)))
+		 results))))))
 
 
 ;; ------------- RPCBIND versions 3 and 4 -------------------
