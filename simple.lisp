@@ -366,11 +366,17 @@ XID ::= if supplied, waiters for this XID will be purged.
 
 ;; threading, if available
 (defun simple-rpc-server-run (server)
+  "Loop processing RPC requests until the server exit flag is set."
   (do ()
       ((simple-rpc-server-exiting server))
     (simple-rpc-server-process server)))
   
 (defun simple-rpc-server-start (server &optional run name)
+  "Start a simple rpc server.
+SERVER ::= simple-rpc-server instance.
+RUN ::= an entry point function. If not supplied SIMPLE-RPC-SERVER-RUN is used.
+NAME ::= a string to use as the thread name.
+"
   (setf (simple-rpc-server-thread server)
         (bt:make-thread (lambda () (if run
                                        (funcall run server)
@@ -379,6 +385,7 @@ XID ::= if supplied, waiters for this XID will be purged.
   server)
 
 (defun simple-rpc-server-stop (server)
+  "Stop a simple rpc server thread."
   (setf (simple-rpc-server-exiting server) t)
   (bt:join-thread (simple-rpc-server-thread server))
   (setf (simple-rpc-server-exiting server) nil

@@ -322,19 +322,32 @@ Typical values might be 5 minutes.")
 	      (rpcbind-log :info "Purging ~A" (mapping-program mapping))
 	      (setf (car mappings) nil))))))))
 
-(defun start-rpcbind ()
+(defun start-rpcbind (&key programs udp-ports tcp-ports providers)
+  "Start an RPC server which serves the rpcbind service. 
+PROGRAMS ::= a list of programs to serve in addition to the rpcbind program.
+UDP-PORTS ::= a list of integers specifying UDP ports to listen on, in addition
+to port 111. 
+TCP-PORTS ::= a list of integers specifying TCP ports to listen on, in addition
+to port 111.
+PROVIDERS ::= a list of authentication providers to use.
+"
   (unless *server*
-    (setf *server* (simple-rpc-server-construct (list (make-rpcbind-program))
-						:udp-ports '(111)
-						:tcp-ports '(111)))
+    (setf *server* (simple-rpc-server-construct (cons (make-rpcbind-program)
+						      programs)
+						:providers providers
+						:udp-ports (cons 111 udp-ports)
+						:tcp-ports (cons 111 tcp-ports)))
 
     ;; ensure we have rpcbind set in the mappings 
     (handle-rpcbind-set *server* (make-mapping :program 100000 :version 2 :protocol :udp :port 111))
     (handle-rpcbind-set *server* (make-mapping :program 100000 :version 2 :protocol :tcp :port 111))
 
-    (simple-rpc-server-start *server* #'run-rpcbind)))
+    (simple-rpc-server-start *server*
+			     #'run-rpcbind
+			     "rpcbind-service-thread"")))
 
 (defun stop-rpcbind ()
+  "Stop the rpcbind service."
   (when *server*
     (simple-rpc-server-stop *server*)
     (simple-rpc-server-destruct *server*)
