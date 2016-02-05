@@ -8,6 +8,7 @@
 	   #:des-server-provider 
 	   #:find-public-key 
 	   #:add-public-key
+	   #:remove-public-key 
 	   #:list-public-keys
 	   #:des-secret 
 	   #:des-public))
@@ -26,7 +27,8 @@
 ;;; It's defined here for the cases where it's required, to show what's possible,
 ;;; as an example of how to write one of these providers.
 ;;;
-;;; TODO: some of the function naming is a bit inconsistent and in some places
+;;; TODO: This code is derived from an older version, frpc. 
+;;; Some of the function naming is a bit inconsistent and in some places
 ;;; contradictory. Many functions are DH- or DES- when they should be vice versa.
 
 
@@ -325,7 +327,7 @@ INITIAL should be T. Otherwise INITIAL should be nil."
   "Convert a bignum to a keybuffer"
   (do ((nums nil)
        (n integer (ash n -8)))
-      ((zerop n) (apply #'vector (nreverse nums)))
+      ((zerop n) (concatenate '(vector (unsigned-byte 8)) (nreverse nums)))
     (push (mod n 256) nums)))
 
 (defun keybuf-integer (keybuf)
@@ -380,7 +382,12 @@ INITIAL should be T. Otherwise INITIAL should be nil."
 			      :test #'string-equal)
 	(list name key)))
 
-			       
+(defun remove-public-key (name)
+  (open-db)
+  (pounds.db:remove-entry name *db*
+			  :key #'first 
+			  :test #'string-equal))
+
 (defun list-public-keys ()
   (open-db)
   (let (entries)
@@ -399,8 +406,7 @@ INITIAL should be T. Otherwise INITIAL should be nil."
 
 (defclass des-server-provider (server-provider)
   ((contexts :initform (make-list 32) :accessor des-provider-contexts)
-   (secret :initarg :secret :accessor des-provider-secret)
-   (public :initarg :public :accessor des-provider-public)))
+   (secret :initarg :secret :accessor des-provider-secret)))
 
 (defun add-des-context (p name timestamp conversation window)
   (let ((cxt (make-des-context :fullname name
@@ -451,16 +457,20 @@ INITIAL should be T. Otherwise INITIAL should be nil."
 	   (destructuring-bind (timestamp window winverf) (decode-des-enc-block blk)
 	     ;; compare the timestamp and window, if it is valid then allocate a context
 	     (let ((ts (getf (des-timestamp) 'seconds)))
-	       (if (and (< (abs (- (getf timestamp 'seconds) ts)) window)
-			(= winverf (1- window)))
-		 (let ((context (add-des-context p
-						 (getf auth 'name)
-						 timestamp
-						 conversation
-						 window)))
-		   (values (des-server-verifier conversation timestamp (des-context-nickname context))
-			   context))
-		 (error "Invalid timestamp ~A:~A window ~A:~A" timestamp ts window winverf))))))))
+	       (cond
+		 ((and (< (abs (- (getf timestamp 'seconds) ts)) window)
+		       (= winverf (1- window)))
+		  (let ((context (add-des-context p
+						  (getf auth 'name)
+						  timestamp
+						  conversation
+						  window)))
+		    (values (des-server-verifier conversation timestamp (des-context-nickname context))
+			    context)))
+		 (t 
+		  (frpc2-log :trace "Invalid timestamp ~A:~A window ~A:~A" 
+			     (getf timestamp 'seconds) ts window winverf)
+		  (error 'auth-error :stat :tooweak)))))))))
     (integer 
      ;; this is a nickname, lookup the context 
      (let ((context (find-des-context p auth)))

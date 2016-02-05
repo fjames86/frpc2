@@ -344,7 +344,7 @@ PROVIDERS ::= a list of authentication providers to use.
 
     (simple-rpc-server-start *server*
 			     #'run-rpcbind
-			     "rpcbind-service-thread"")))
+			     "rpcbind-service-thread")))
 
 (defun stop-rpcbind ()
   "Stop the rpcbind service."
