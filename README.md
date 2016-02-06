@@ -123,18 +123,18 @@ See `test/timing.lisp`.
  * TODO: compare against other clients and servers.
  * TODO: Check consing, although we already know frpc2 conses signifiantly less.
  
-| Protocol :| Client :| Server :| Time per call       :|
-|----------:|--------:|--------:|---------------------:|
-| TCP      :| frpc   :| frpc   :| 0.00080 +/- 0.00007 :|
-| TCP      :| frpc   :| frpc2  :| 0.00034 +/- 0.00001 :|
-| TCP      :| frpc2  :| frpc   :| 0.00049 +/- 0.00001 :|
-| TCP      :| frpc2  :| frpc2  :| 0.00023 +/- 0.00001 :|
-|----------:|--------:|--------:|---------------------:|
-| UDP      :| frpc   :| frpc   :| 0.00074 +/- 0.00006 :|
-| UDP      :| frpc   :| frpc2  :| 0.00038 +/- 0.00002 :|
-| UDP      :| frpc2  :| frpc   :| 0.00055 +/- 0.00001 :|
-| UDP      :| frpc2  :| frpc2  :| 0.00019 +/- 0.00001 :|
-|----------:|--------:|--------:|---------------------:|
+| Protocol | Client | Server | Time per call       |
+|----------|--------|--------|---------------------|
+| TCP      | frpc   | frpc   | 0.00080 +/- 0.00007 |
+| TCP      | frpc   | frpc2  | 0.00034 +/- 0.00001 |
+| TCP      | frpc2  | frpc   | 0.00049 +/- 0.00001 |
+| TCP      | frpc2  | frpc2  | 0.00023 +/- 0.00001 |
+|----------|--------|--------|---------------------|
+| UDP      | frpc   | frpc   | 0.00074 +/- 0.00006 |
+| UDP      | frpc   | frpc2  | 0.00038 +/- 0.00002 |
+| UDP      | frpc2  | frpc   | 0.00055 +/- 0.00001 |
+| UDP      | frpc2  | frpc2  | 0.00019 +/- 0.00001 |
+|----------|--------|--------|---------------------|
 
 Conclusions:
  * The frpc server takes roughly the same at roughly 0.0005s per call. This suggests the frpc server is the bottleneck.
@@ -146,10 +146,10 @@ Conclusions:
  
 ## 5. Dependencies
 Most dependencies can be found here (http://github.com/fjames86).
- * (fsocket)[http://github.com/fjames86/fsocket] A (hopefully) reliable and portable BSD sockets API
- * (DrX)[http://github.com/fjames86/drx] XDR serializer
- * (pounds)[http://github.com/fjames86/pounds] mmap utilties for debug logging and shared databases.
- * (dragons)[http://github.com/fjames86/dragons] DNS client for name resolution
+ * [fsocket](http://github.com/fjames86/fsocket) A (hopefully) reliable and portable BSD sockets API
+ * [DrX](http://github.com/fjames86/drx) XDR serializer
+ * [pounds](http://github.com/fjames86/pounds) mmap utilties for debug logging and shared databases.
+ * [dragons](http://github.com/fjames86/dragons) DNS client for name resolution
 
 ## 6. License
 Licensed under the terms of the MIT license.
