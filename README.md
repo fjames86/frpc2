@@ -119,11 +119,12 @@ See `test/timing.lisp`.
  * SBCL 1.3.1 x86-64
  * Calling rpcbind NULL proc on localhost (no authentication)
  * 5000 calls per iteration, averaged over 100 iterations.
- * Server hosted in different image to client. 
+ * Server hosted in different image to client.
+ * TODO: use sb-profile 
  * TODO: compare against other clients and servers.
  * TODO: Check consing, although we already know frpc2 conses signifiantly less.
  
-| Protocol | Client | Server | Time per call       |
+| Protocol | Client | Server | Seconds per call    |
 |----------|--------|--------|---------------------|
 | TCP      | frpc   | frpc   | 0.00080 +/- 0.00007 |
 | TCP      | frpc   | frpc2  | 0.00034 +/- 0.00001 |

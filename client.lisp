@@ -288,7 +288,9 @@ Returns (values result xid)."
 (defclass tcp-client (rpc-client)
   ((fd :initform nil :accessor tcp-client-fd)
    (pc :initform nil :accessor tcp-client-pc)
-   (addr :initarg :addr :reader tcp-client-addr)
+   (addr :initarg :addr
+	 :initform (fsocket:sockaddr-in #(127 0 0 1) 111)
+	 :reader tcp-client-addr)
    (timeout :initform 1000 :initarg :timeout :accessor tcp-client-timeout)))
 
 (defmethod initialize-instance :after ((tcp tcp-client) &rest initargs &key &allow-other-keys)
