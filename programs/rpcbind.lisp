@@ -352,5 +352,3 @@ PROVIDERS ::= a list of authentication providers to use.
     (simple-rpc-server-stop *server*)
     (simple-rpc-server-destruct *server*)
     (setf *server* nil)))
-
-

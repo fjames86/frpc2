@@ -112,4 +112,3 @@ provider wishes the server to be silent and not send a reply, this function retu
       (encode-rpc-msg blk (make-rpc-reply (rpc-msg-xid msg) :system-error))
       blk)))
 
-
