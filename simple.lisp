@@ -25,6 +25,7 @@
    (msg :initform nil :accessor simple-rpc-server-msg)
    (rpfd :initform nil :accessor simple-rpc-server-rpfd)
    (exiting :initform nil :accessor simple-rpc-server-exiting)
+   (timeout :initform 1000 :accessor simple-rpc-server-timeout)
    (thread :initform nil :accessor simple-rpc-server-thread)))
 
 (defstruct call 
@@ -202,7 +203,10 @@ XID ::= if supplied, waiters for this XID will be purged.
 			  (when (process-rpc-call server blk msg)
                             ;; send the fragment header
                             (let ((hblk (xdr-block 4)))
-                              (encode-uint32 hblk (logior (xdr-block-count blk) #x80000000))
+			      (frpc2-log :info "[~A] REPLY TCP Length ~A"
+					 (rpc-msg-xid msg)
+					 (xdr-block-offset blk))
+                              (encode-uint32 hblk (logior (xdr-block-offset blk) #x80000000))
 			      ;; TODO: check for a short write
                               (fsocket:socket-send (fsocket:pollfd-fd pollfd)
                                                    (xdr-block-buffer hblk)
@@ -211,7 +215,7 @@ XID ::= if supplied, waiters for this XID will be purged.
 			    ;; TODO: check for a short write 
                             (fsocket:socket-send (fsocket:pollfd-fd pollfd)
                                                  (xdr-block-buffer blk)
-                                                 :start 0 :end (xdr-block-count blk))
+                                                 :start 0 :end (xdr-block-offset blk))
 			    (reset-xdr-block blk)))
                    (:reply (frpc2-log :info "[~A] REPLY TCP ~A:~A"
 				      (rpc-msg-xid msg)
@@ -222,12 +226,12 @@ XID ::= if supplied, waiters for this XID will be purged.
                (setf (tcp-pollfd-count pollfd) nil))))))))))
                        
 (defun simple-rpc-server-process (server)
-  (fsocket:doevents (pollfd event) (fsocket:poll (simple-rpc-server-pc server) :timeout 1000)
+  (fsocket:doevents (pollfd event) (fsocket:poll (simple-rpc-server-pc server)
+						 :timeout (simple-rpc-server-timeout server))
     (frpc2-log :trace "~A ~A" pollfd event)
     (etypecase pollfd
       (udp-pollfd
-       (handler-case (handler-bind ((error (lambda (e) (declare (ignore e)) nil)))
-		       (process-simple-rpc-server-udp server pollfd))
+       (handler-case (process-simple-rpc-server-udp server pollfd)
          (error (e)
 	   (frpc2-log :error "UDP ~A" e)
            nil)))
@@ -252,9 +256,11 @@ XID ::= if supplied, waiters for this XID will be purged.
 	      (frpc2-log :error "TCP ~A" e)
               (fsocket:close-socket (fsocket:pollfd-fd pollfd))
               (fsocket:poll-unregister (simple-rpc-server-pc server) pollfd))))
-         (:pollhup 
-          (fsocket:close-socket (fsocket:pollfd-fd pollfd))
-          (fsocket:poll-unregister (simple-rpc-server-pc server) pollfd))))))
+         ((:pollhup :pollerr)
+	  (when (fsocket:pollfd-fd pollfd)
+	    (fsocket:close-socket (fsocket:pollfd-fd pollfd))
+	    (fsocket:poll-unregister (simple-rpc-server-pc server) pollfd)
+	    (setf (fsocket:pollfd-fd pollfd) nil)))))))
 
   ;; purge any outstanding calls that have timed out
   (simple-rpc-server-purge-calls server)

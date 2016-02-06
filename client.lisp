@@ -322,6 +322,18 @@ Returns (values result xid)."
   (fsocket:close-socket (tcp-client-fd tcp))
   (fsocket:close-poll (tcp-client-pc tcp)))
 
+(defun rpc-client-safe-poll (tcp)
+  (do ((done nil))
+      (done)
+    (let ((pfds (fsocket:poll (tcp-client-pc tcp)
+			      :timeout (tcp-client-timeout tcp))))
+      (cond
+	(pfds
+	 (let ((revts (fsocket:poll-events (fsocket:pollfd-revents (car pfds)))))
+	   (when revts (setf done t))))
+	(t
+	 (error 'rpc-timeout-error))))))
+
 (defmethod rpc-client-call ((tcp tcp-client) arg-encoder arg res-decoder program version proc)
   ;; start by encoding the message
   (reset-xdr-block (rpc-client-block tcp))
@@ -348,26 +360,26 @@ Returns (values result xid)."
 	       ;; Read the fragment header which is a 4-octet BE uint32. If the high bit (0x80000000) is
 	       ;; set then this indicates it is the final fragment.
 	       (setf (xdr-block-offset cblk) 0)
-	       (unless (fsocket:poll (tcp-client-pc tcp) :timeout (tcp-client-timeout tcp))
-		 (error 'rpc-timeout-error))
+	       (rpc-client-safe-poll tcp)
+
 	       ;; TODO: check for a short read 
 	       (let ((cnt (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer cblk))))
-		 (when (zerop cnt) (error "Graceful close")))
+		 (when (zerop cnt) (error 'rpc-error :msg "Graceful close")))
 	       (setf (xdr-block-offset cblk) 0)
 	       (decode-uint32 cblk))
 	     (recv-fragment (count)
 	       ;; This function keeps reading until COUNT bytes have been received
 	       (do ((cnt 0))
 		   ((>= cnt count) cnt)
-		 (unless (fsocket:poll (tcp-client-pc tcp) :timeout (tcp-client-timeout tcp))
-		   (error 'rpc-timeout-error))
+		 (rpc-client-safe-poll tcp)
+
 		 ;; check there is enough space in buffer to actually read into
 		 (unless (>= (- (length (xdr-block-buffer blk)) start) count)
 		   ;; TODO: signal a better error condition 
 		   (error 'rpc-error :msg "Short buffer"))
 		 (let ((c (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer blk)
 					       :start start)))
-		   (when (zerop c) (error "Graceful close"))
+		   (when (zerop c) (error 'rpc-error :msg "Graceful close"))
 		   (incf cnt c)
 		   (incf start c)))))
 	
