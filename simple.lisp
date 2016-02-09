@@ -66,7 +66,7 @@ If STATIC-P is true then the waiter will not be purged until it either times out
 				   :arg context 
 				   :static-p static-p
 				   :purge-cb purge-cb))
-      (frpc2-log :trace "Enqueuing call waiter")
+      (frpc2-log :trace "[~A] Enqueuing call waiter" xid)
       (return-from simple-rpc-server-await-reply t)))
   (frpc2-log :info "Failed to enqueue call waiter")
   nil)
@@ -93,7 +93,7 @@ XID ::= if supplied, waiters for this XID will be purged.
 	     ;; if a timeout was set and it's less than now then remove it 
 	     (when (or (and timeout (< timeout now))
 		       (and purge-static (or (null timeout) (call-static-p call))))
-	       (frpc2-log :trace "Purging call")
+	       (frpc2-log :trace "[~A] Purging call" (call-xid call))
 	       ;; run the purge callback if one is defined 
 	       (when (call-purge-cb call)
 		 (ignore-errors (funcall (call-purge-cb call) nil (call-arg call))))
@@ -120,8 +120,6 @@ XID ::= if supplied, waiters for this XID will be purged.
             (xdr-block-offset blk) 0
             (xdr-block-count blk) count
             (simple-rpc-server-rpfd server) pollfd)
-
-      (frpc2-log :trace "RECVFROM ~A ~A" raddr count)
 
       (let ((msg (decode-rpc-msg blk)))
         (setf (simple-rpc-server-msg server) msg)
@@ -212,16 +210,14 @@ XID ::= if supplied, waiters for this XID will be purged.
 					 (xdr-block-offset blk))
                               (encode-uint32 hblk (logior (xdr-block-offset blk) #x80000000))
 			      ;; TODO: check for a short write
-                              (let ((scnt (fsocket:socket-send (fsocket:pollfd-fd pollfd)
+			      (fsocket:socket-send (fsocket:pollfd-fd pollfd)
 							       (xdr-block-buffer hblk)
-							       :start 0 :end (xdr-block-offset hblk))))
-				(frpc2-log :trace "Sent fragment count ~A ~S" scnt (xdr-block-buffer hblk))))
+							       :start 0 :end (xdr-block-offset hblk)))
                             ;; send payload
 			    ;; TODO: check for a short write
-                            (let ((scnt (fsocket:socket-send (fsocket:pollfd-fd pollfd)
+                            (fsocket:socket-send (fsocket:pollfd-fd pollfd)
 							     (xdr-block-buffer blk)
-							     :start 0 :end (xdr-block-offset blk))))
-			      (frpc2-log :trace "Sent data count ~A" scnt))
+							     :start 0 :end (xdr-block-offset blk))
 			    (reset-xdr-block blk))))
                    (:reply (frpc2-log :info "[~A] REPLY TCP ~A:~A"
 				      (rpc-msg-xid msg)
@@ -234,7 +230,6 @@ XID ::= if supplied, waiters for this XID will be purged.
 (defun simple-rpc-server-process (server)
   (fsocket:doevents (pollfd event) (fsocket:poll (simple-rpc-server-pc server)
 						 :timeout (simple-rpc-server-timeout server))
-    (frpc2-log :trace "~A ~A" pollfd event)
     (etypecase pollfd
       (udp-pollfd
        (handler-case (process-simple-rpc-server-udp server pollfd)
@@ -277,7 +272,7 @@ XID ::= if supplied, waiters for this XID will be purged.
       (when (and (typep pollfd 'tcp-pollfd)
                  (> now
 		    (+ (tcp-pollfd-timestamp pollfd) +tcp-purge-age+)))
-	(frpc2-log :trace "Purging connection ~A" pollfd)
+	(frpc2-log :trace "Purging connection to ~A" (tcp-pollfd-addr pollfd))
         (fsocket:close-socket (fsocket:pollfd-fd pollfd))
         (fsocket:poll-unregister (simple-rpc-server-pc server) pollfd))))
 
