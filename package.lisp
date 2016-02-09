@@ -70,7 +70,8 @@
 	   #:send-rpc
 	   #:recv-rpc 
 	   #:with-rpc-client
-
+	   #:generate-program-number
+	   
 	   ;; define clients and server programs
 	   #:defrpc 
 	   #:define-rpc-client

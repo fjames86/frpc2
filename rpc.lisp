@@ -161,3 +161,10 @@
       (error 'accept-error :stat :garbage-args))
     (xunion-val body)))
         
+(defun generate-program-number (&optional transient)
+  "Generate a program identifier in the user-defined range, as specified by the RFC.
+If TRANSIENT is true, a runtime program number is generated. These should be used by programs which
+need to generate program numbers at runtime."
+  (if transient 
+      (+ #x40000000 (random #x20000000))
+      (+ #x20000000 (random #x20000000))))
