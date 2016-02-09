@@ -298,6 +298,12 @@ Returns (values result xid) if a reply was received or nil on timeout."
 
 ;; -------------------------------------------------------
 
+;; The TCP client needs improvement. The main problem is the socket
+;; is placed in non-blocking mode but we don't check for POLLOUT when writing.
+;; This means the SOCKET-SEND calls are not strictly correct. However this
+;; should only become an issue when talking to servers that are under heavy load
+;; i.e. when their recv buffers are getting full. For us that's unlikely to be often.
+
 (defclass tcp-client (rpc-client)
   ((fd :initform nil :accessor tcp-client-fd)
    (pc :initform nil :accessor tcp-client-pc)
@@ -497,11 +503,13 @@ Returns (values result xid) if a reply was received or nil on timeout."
 
 (defmethod initialize-instance :after ((c broadcast-client) &rest initargs &key &allow-other-keys)
   (declare (ignore initargs))
+
+  #+freebsd(warn "UDP broadcast is unlikely to work on FreeBSD")
+  
   ;; set the socket option
   (setf (fsocket:socket-option (udp-client-fd c) :socket :broadcast) t)
   (unless (udp-client-addr c)
-    (setf (udp-client-addr c) (fsocket:make-sockaddr-in :addr #(255 255 255 255)
-							:port 111))))
+    (setf (udp-client-addr c) (fsocket:sockaddr-in #(255 255 255 255) 111))))
 
 (defmethod rpc-client-call ((c broadcast-client) arg-encoder arg res-decoder program version proc)
   (let ((blk (rpc-client-block c)))
@@ -513,21 +521,22 @@ Returns (values result xid) if a reply was received or nil on timeout."
       (fsocket:socket-sendto (udp-client-fd c)
 			     (xdr-block-buffer blk)
 			     (udp-client-addr c)
-			     :start 0
-			     :end (xdr-block-offset blk))
+			     :start 0 :end (xdr-block-offset blk))
       (when (udp-client-timeout c)
 	(do ((done nil)
 	     (results nil))
 	    (done results)
 	  (cond
-	    ((fsocket:poll (udp-client-pc c) 
-			   :timeout (udp-client-timeout c))
+	    ;; FIXME: should check the pending events on the pfds for POLLIN or POLLERR 
+	    ((fsocket:poll (udp-client-pc c) :timeout (udp-client-timeout c))
 	     (multiple-value-bind (count raddr) (fsocket:socket-recvfrom (udp-client-fd c) (xdr-block-buffer blk))
 	       (setf (udp-client-addr c) raddr
 		     (xdr-block-offset blk) 0
 		     (xdr-block-count blk) count)
 	       (push (list raddr
-			   (decode-rpc-reply blk res-decoder xid
+			   (decode-rpc-reply blk
+					     res-decoder
+					     xid
 					     (rpc-client-provider c)))
 		     results)))
 	    (t (setf done t))))))))
@@ -628,3 +637,4 @@ server separately."
        `(define-rpc-client ,',name (,',program ,',version ,@options) ,@',rpcs))
      (defmacro ,(drx::symbolicate 'define- name '-server) (&rest options)
        `(define-rpc-server ,',name (,',program ,',version ,@options) ,@',rpcs))))
+
