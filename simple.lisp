@@ -126,11 +126,12 @@ XID ::= if supplied, waiters for this XID will be purged.
       (let ((msg (decode-rpc-msg blk)))
         (setf (simple-rpc-server-msg server) msg)
         (ecase (xunion-tag (rpc-msg-body msg))
-          (:call (frpc2-log :info "CALL UDP ~A:~A ~A:~A:~A" 
+          (:call (frpc2-log :info "CALL UDP ~A:~A ~A:~A:~A [~A]"  
 			    (fsocket:sockaddr-in-addr raddr) (fsocket:sockaddr-in-port raddr)
 			    (call-body-program (xunion-val (rpc-msg-body msg))) 
 			    (call-body-version (xunion-val (rpc-msg-body msg))) 
-			    (call-body-proc (xunion-val (rpc-msg-body msg))))
+			    (call-body-proc (xunion-val (rpc-msg-body msg)))
+			    (rpc-msg-xid msg))
 		 (when (process-rpc-call server blk msg)
 		   (frpc2-log :trace "SENDTO ~A" raddr)
                    (fsocket:socket-sendto (fsocket:pollfd-fd pollfd)
@@ -180,7 +181,7 @@ XID ::= if supplied, waiters for this XID will be purged.
          (t
           (incf (xdr-block-offset blk) cnt)
           (decf (tcp-pollfd-count pollfd) cnt)
-          
+
           (when (zerop (tcp-pollfd-count pollfd))
             (cond
               ((tcp-pollfd-last pollfd)
@@ -200,7 +201,10 @@ XID ::= if supplied, waiters for this XID will be purged.
 				     (call-body-version (xunion-val (rpc-msg-body msg))) 
 				     (call-body-proc (xunion-val (rpc-msg-body msg))))
 
-			  (when (process-rpc-call server blk msg)
+			  (cond
+			    ((not (process-rpc-call server blk msg))
+			     (frpc2-log :trace "No reply"))
+			    (t 
                             ;; send the fragment header
                             (let ((hblk (xdr-block 4)))
 			      (frpc2-log :info "[~A] REPLY TCP Length ~A"
@@ -208,15 +212,17 @@ XID ::= if supplied, waiters for this XID will be purged.
 					 (xdr-block-offset blk))
                               (encode-uint32 hblk (logior (xdr-block-offset blk) #x80000000))
 			      ;; TODO: check for a short write
-                              (fsocket:socket-send (fsocket:pollfd-fd pollfd)
-                                                   (xdr-block-buffer hblk)
-                                                   :start 0 :end (xdr-block-offset hblk)))
+                              (let ((scnt (fsocket:socket-send (fsocket:pollfd-fd pollfd)
+							       (xdr-block-buffer hblk)
+							       :start 0 :end (xdr-block-offset hblk))))
+				(frpc2-log :trace "Sent fragment count ~A ~S" scnt (xdr-block-buffer hblk))))
                             ;; send payload
-			    ;; TODO: check for a short write 
-                            (fsocket:socket-send (fsocket:pollfd-fd pollfd)
-                                                 (xdr-block-buffer blk)
-                                                 :start 0 :end (xdr-block-offset blk))
-			    (reset-xdr-block blk)))
+			    ;; TODO: check for a short write
+                            (let ((scnt (fsocket:socket-send (fsocket:pollfd-fd pollfd)
+							     (xdr-block-buffer blk)
+							     :start 0 :end (xdr-block-offset blk))))
+			      (frpc2-log :trace "Sent data count ~A" scnt))
+			    (reset-xdr-block blk))))
                    (:reply (frpc2-log :info "[~A] REPLY TCP ~A:~A"
 				      (rpc-msg-xid msg)
 				      (fsocket:sockaddr-in-addr (tcp-pollfd-addr pollfd)) 
@@ -280,8 +286,7 @@ XID ::= if supplied, waiters for this XID will be purged.
 (defun simple-rpc-server-destruct (server)
   ;; tell rpcbind we are going away
   (with-rpc-client (c udp-client 
-		      :addr (fsocket:make-sockaddr-in :addr #(127 0 0 1)
-						      :port 111))
+		      :addr (fsocket:sockaddr-in #(127 0 0 1) 111))
     (dolist (progs (rpc-server-programs server))
       (let ((program (first progs))
 	    (version (second progs)))
@@ -299,7 +304,7 @@ XID ::= if supplied, waiters for this XID will be purged.
 						     :protocol :tcp
 						     :port 0))))
 	    (error (e)
-	      (frpc2-log :error "RPCBIND-UNSET ~A" e)))))))
+	      (frpc2-log :error "Failed to unset mapping: ~A" e)))))))
 	     
   ;; close all fds
   (dolist (pfd (fsocket:poll-context-fds (simple-rpc-server-pc server)))

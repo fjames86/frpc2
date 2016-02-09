@@ -140,6 +140,7 @@ procedure results returned from RECV-RPC."
 	   (type integer program version proc))
   ;; encode the call into the client block
   (let ((blk (rpc-client-block client)))
+    (reset-xdr-block blk)
     (let ((xid (encode-rpc-call blk
 				arg-encoder arg
 				program version proc
@@ -155,14 +156,14 @@ procedure results returned from RECV-RPC."
 	    
 
 (defgeneric rpc-client-recv (client)
-  (:documentation "Receive an RPC reply into the client block."))
+  (:documentation "Receive an RPC reply into the client block. Returns Non-nil if data successfully received or nil on timeout."))
 
 (defun pop-client-outstanding (client xid)
   (do ((outs (rpc-client-outstanding client) (cdr outs))
        (prev nil)
        (out nil))
       ((or (null outs) out) out)
-    (when (= (car (car outs)) xid)
+    (when (= (first (car outs)) xid)
       (setf out (car outs))
       (if prev
 	  (setf (cdr prev) (cdr outs))
@@ -170,29 +171,31 @@ procedure results returned from RECV-RPC."
 		(cdr (rpc-client-outstanding client)))))
     (setf prev outs)))
 
-(declaim (ftype (function (rpc-client) (values * integer)) recv-rpc))
+(declaim (ftype (function (rpc-client) *) recv-rpc))
 (defun recv-rpc (client)
-  "Receive an RPC reply message. Will block until a reply is received. 
+  "Receive an RPC reply message. Will block until a reply is received or timeout.
 
 CLIENT ::= RPC-CLIENT instance.
 
-Returns (values result xid)."
+Returns (values result xid) if a reply was received or nil on timeout."
   (declare (type rpc-client client))
-  ;; either returns successfully then the block has been filled or errors
-  (rpc-client-recv client)
+  ;; receive an rpc
+  (unless (rpc-client-recv client)
+    (return-from recv-rpc nil))
+
   ;; process the contents of the block 
   (let* ((blk (rpc-client-block client))
-	 (rmsg (decode-rpc-msg blk)))
-    (let ((out (pop-client-outstanding client (rpc-msg-xid rmsg))))
-      (unless out
-	(error 'rpc-error
-	       :msg (format nil "Unexpected XID ~A" (rpc-msg-xid rmsg))))
-      (values 
-       (decode-rpc-reply blk (second out) (rpc-msg-xid rmsg)
-			 (rpc-client-provider client)
-			 rmsg)
-       (rpc-msg-xid rmsg)))))
-      
+	 (rmsg (decode-rpc-msg blk))
+	 (out (pop-client-outstanding client (rpc-msg-xid rmsg))))
+    (unless out
+      (error 'rpc-error
+	     :msg (format nil "Unexpected XID ~A" (rpc-msg-xid rmsg))))
+    (values 
+     (decode-rpc-reply blk (second out) (rpc-msg-xid rmsg)
+		       (rpc-client-provider client)
+		       rmsg)
+     (rpc-msg-xid rmsg))))
+
   
 ;; -------------------------------
 
@@ -238,12 +241,22 @@ Returns (values result xid)."
 (defmethod rpc-client-recv ((u udp-client))
   (let ((blk (rpc-client-block u)))
     (when (udp-client-timeout u)
-      (unless (fsocket:poll (udp-client-pc u) :timeout (udp-client-timeout u))
-	(error 'rpc-timeout-error))
-      (multiple-value-bind (count raddr) (fsocket:socket-recvfrom (udp-client-fd u) (xdr-block-buffer blk))
-	(setf (udp-client-addr u) raddr
-	      (xdr-block-offset blk) 0
-	      (xdr-block-count blk) count)))))
+      (let ((pfds (fsocket:poll (udp-client-pc u) :timeout (udp-client-timeout u))))
+	;; if nothing received then return
+	(cond 
+	  ((not pfds)
+	   ;; timeout when polling 
+	   nil)
+	  ((not (member :pollin (fsocket:poll-events
+				 (fsocket:pollfd-revents (car pfds)))))
+	   ;; no data ready to read 
+	   nil)
+	  (t 	
+	   (multiple-value-bind (count raddr) (fsocket:socket-recvfrom (udp-client-fd u) (xdr-block-buffer blk))
+	     (setf (udp-client-addr u) raddr
+		   (xdr-block-offset blk) 0
+		   (xdr-block-count blk) count)
+	     blk)))))))
 
 ;; we try sending the message until we get a response or run out of retries
 ;; each subsequent retry increases the timeout by a factor of 1.5, a number I chose at random
@@ -324,17 +337,20 @@ Returns (values result xid)."
   (fsocket:close-socket (tcp-client-fd tcp))
   (fsocket:close-poll (tcp-client-pc tcp)))
 
-(defun rpc-client-safe-poll (tcp)
+(defun rpc-client-safe-poll (tcp &optional (errorp t))
   (do ((done nil))
-      (done)
+      (done t)
     (let ((pfds (fsocket:poll (tcp-client-pc tcp)
 			      :timeout (tcp-client-timeout tcp))))
       (cond
 	(pfds
 	 (let ((revts (fsocket:poll-events (fsocket:pollfd-revents (car pfds)))))
-	   (when revts (setf done t))))
+	   (when revts
+	     (setf done t))))
 	(t
-	 (error 'rpc-timeout-error))))))
+	 (if errorp
+	     (error 'rpc-timeout-error)
+	     (return-from rpc-client-safe-poll nil)))))))
 
 (defmethod rpc-client-call ((tcp tcp-client) arg-encoder arg res-decoder program version proc)
   ;; start by encoding the message
@@ -380,7 +396,7 @@ Returns (values result xid)."
 		   ;; TODO: signal a better error condition 
 		   (error 'rpc-error :msg "Short buffer"))
 		 (let ((c (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer blk)
-					       :start start)))
+					       :start start :end count)))
 		   (when (zerop c) (error 'rpc-error :msg "Graceful close"))
 		   (incf cnt c)
 		   (incf start c)))))
@@ -400,7 +416,79 @@ Returns (values result xid)."
 
     (decode-rpc-reply blk res-decoder xid
 		      (rpc-client-provider tcp))))
-    
+
+;; The async parts are a bit harder for TCP because we can't keep looping
+;; until it's all received like we do in rpc-client-call. Instead we need to
+;; keep track of how much we have received. For simplicity we just copy
+;; the blocking codes from rpc-client-call even though we acknowledge it is
+;; not strictly correct.
+
+(defmethod rpc-client-send ((tcp tcp-client))
+  (let ((blk (rpc-client-block tcp))
+	(cblk (xdr-block 4)))
+    (encode-uint32 cblk (logior (xdr-block-offset blk) #x80000000))
+    (fsocket:socket-send (tcp-client-fd tcp)
+			 (xdr-block-buffer cblk))
+    (fsocket:socket-send (tcp-client-fd tcp)
+			 (xdr-block-buffer blk)
+			 :start 0
+			 :end (xdr-block-offset blk))))
+
+(defmethod rpc-client-recv ((tcp tcp-client))
+  (let* ((blk (rpc-client-block tcp))
+	 (cblk (make-auth-block 4))
+	 (start 0))
+    (reset-xdr-block blk)
+    (flet ((recv-fragment-count ()
+	     ;; Read the fragment header which is a 4-octet BE uint32. If the high bit (0x80000000) is
+	     ;; set then this indicates it is the final fragment.
+	     (setf (xdr-block-offset cblk) 0)
+	     
+	     ;; poll for input. Note that since this is the initial call
+	     ;; on a timeout we can safely return nil. We can't do that
+	     ;; for any of the others because we would be partway through
+	     ;; receiving so it really would mean a timeout in that case.
+	     (unless (rpc-client-safe-poll tcp nil)
+	       (return-from rpc-client-recv nil))
+	     
+	     ;; TODO: check for a short read 
+	     (let ((cnt (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer cblk))))
+	       (when (zerop cnt) (error 'rpc-error :msg "Graceful close"))
+	       (setf (xdr-block-offset cblk) 0)
+	       (let ((fc (decode-uint32 cblk)))
+		 (unless (= fc 2147483672) (break))
+		 fc)))
+	   (recv-fragment (count)
+	     ;; This function keeps reading until COUNT bytes have been received
+	       (do ((cnt 0))
+		   ((>= cnt count) cnt)
+		 (rpc-client-safe-poll tcp)
+		 
+		 ;; check there is enough space in buffer to actually read into
+		 (unless (>= (- (length (xdr-block-buffer blk)) start) count)
+		   ;; TODO: signal a better error condition 
+		   (error 'rpc-error :msg "Short buffer"))
+		 (let ((c (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer blk)
+					       :start start :end count)))
+		   (when (zerop c) (error 'rpc-error :msg "Graceful close"))
+		   (incf cnt c)
+		   (incf start c)))))
+      
+      ;; We keep looping until the final fragment has been read
+      (do ((cnt 0)
+	   (done nil))
+	  (done (setf (xdr-block-count blk) cnt
+		      (xdr-block-offset blk) 0))
+	(let* ((rcount (recv-fragment-count))
+	       (last-p (not (zerop (logand rcount #x80000000))))
+	       (count (logand rcount (lognot #x80000000))))
+	  ;; read the fragement 
+	  (recv-fragment count)
+	  (incf cnt count)
+	  (when last-p (setf done t))))
+
+      blk)))
+
 
 ;; ------------------------------------------------------
 
