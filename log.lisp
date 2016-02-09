@@ -13,7 +13,7 @@
           (pounds.log:open-log
 	   :path (or pathname
 		     (merge-pathnames "frpc2.log" (user-homedir-pathname)))
-	   :tag "FPC2"))))
+	   :tag "RPC2"))))
 
 (defun close-log ()
   "Close the log."
