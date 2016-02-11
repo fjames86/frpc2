@@ -5,7 +5,8 @@
   (:use #:cl #:frpc2)
   (:export #:rpcbind 
 	   #:start-rpcbind
-	   #:stop-rpcbind))
+	   #:stop-rpcbind
+	   #:register-program))
 
 (in-package #:rpcbind)
 
@@ -352,3 +353,26 @@ PROVIDERS ::= a list of authentication providers to use.
     (simple-rpc-server-stop *server*)
     (simple-rpc-server-destruct *server*)
     (setf *server* nil)))
+
+(defun register-program (program)
+  (unless *server* (error "RPCBIND server not running."))
+  
+  (dolist (p (rpc-server-programs *server*))
+    (when (and (= (first p) (first program))
+	       (= (second p) (second program)))
+      (setf (cddr p) (cddr program))
+      (return-from register-program nil)))
+  (push program (rpc-server-programs *server*))
+  (handle-rpcbind-set *server*
+		      (make-mapping :program (first program)
+				    :version (second program)
+				    :port 111
+				    :protocol :udp))
+  (handle-rpcbind-set *server*
+		      (make-mapping :program (first program)
+				    :version (second program)
+				    :port 111
+				    :protocol :tcp))
+  nil)
+
+
