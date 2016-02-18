@@ -25,9 +25,10 @@
    (msg :initform nil :accessor simple-rpc-server-msg)
    (rpfd :initform nil :accessor simple-rpc-server-rpfd)
    (exiting :initform nil :accessor simple-rpc-server-exiting)
-   (timeout :initform 1000 :accessor simple-rpc-server-timeout)
-   (thread :initform nil :accessor simple-rpc-server-thread)))
-
+   (timeout :initform 1000 :initarg :timeout :accessor simple-rpc-server-timeout)
+   (thread :initform nil :accessor simple-rpc-server-thread)
+   (iterations :initform nil :initarg :iterations :accessor simple-rpc-server-iterations)))
+  
 (defstruct call 
   xid 
   timeout
@@ -54,6 +55,11 @@ the same arguments as the normal FN, except the BLK is nil.
 
 If TIMEOUT is NIL then the waiter will not be purged until a manual call to SIMPLE-RPC-SERVER-PURGE-CALLS.
 If STATIC-P is true then the waiter will not be purged until it either times out or is manually purged.
+
+Remarks: 
+Please note that the callback will be invoked when the reply is received regardless of whether the
+reply contains a success status or an error. Users should first examine the msg by accessing 
+SIMPLE-RPC-SERVER-MSG before attempting to decode their expected result from the the blk.
 "
   (do ((calls (simple-rpc-server-calls server) (cdr calls)))
       ((null calls))
@@ -66,7 +72,7 @@ If STATIC-P is true then the waiter will not be purged until it either times out
 				   :arg context 
 				   :static-p static-p
 				   :purge-cb purge-cb))
-      (frpc2-log :trace "[~A] Enqueuing call waiter" xid)
+      (frpc2-log :trace "[~A] Enqueue waiter :TIMEOUT ~A" xid timeout)
       (return-from simple-rpc-server-await-reply t)))
   (frpc2-log :info "Failed to enqueue call waiter")
   nil)
@@ -308,10 +314,12 @@ XID ::= if supplied, waiters for this XID will be purged.
 
   nil)
 
-(defun simple-rpc-server-construct (programs &key udp-ports tcp-ports providers)
+(defun simple-rpc-server-construct (programs &key udp-ports tcp-ports providers iterations timeout)
   (let ((server (make-instance 'simple-rpc-server
                                :programs programs
-                               :providers providers)))
+                               :providers providers
+			       :timeout (or timeout 1000)
+			       :iterations iterations)))
     (setf (simple-rpc-server-exiting server) nil)
 
     (handler-bind ((error (lambda (e)
@@ -375,7 +383,12 @@ XID ::= if supplied, waiters for this XID will be purged.
   "Loop processing RPC requests until the server exit flag is set."
   (do ()
       ((simple-rpc-server-exiting server))
-    (simple-rpc-server-process server)))
+    (simple-rpc-server-process server)
+
+    (dolist (iteration (simple-rpc-server-iterations server))
+      (handler-case (funcall (first iteration) server (second iteration))
+	(error (e)
+	  (frpc2-log :error "Iteration: ~A" e))))))
   
 (defun simple-rpc-server-start (server &optional run name)
   "Start a simple rpc server.

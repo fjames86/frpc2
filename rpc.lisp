@@ -132,6 +132,7 @@
 
 
 (defun rpc-reply-verf (msg)
+  "Get the reply verifier from the msg. Will signal an error if the call was unsuccessful."
   (let ((b (rpc-msg-body msg)))
     (unless (eq (xunion-tag b) :reply)
       ;; not a reply when a reply was expected. signal a garbage args error 

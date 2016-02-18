@@ -31,7 +31,8 @@
            #:encode-rpc-call
 	   #:make-rpc-reply 
            #:decode-rpc-reply
-
+	   #:rpc-reply-verf
+	   
            ;; errors and conditions 
            #:rpc-error
            #:accept-error
@@ -130,7 +131,8 @@
 	   #:simple-rpc-server-exiting 
 	   #:simple-rpc-server-thread 
 	   #:simple-rpc-server-purge-calls
-
+	   #:simple-rpc-server-timeout
+	   
 	   ;; debug logging
 	   #:frpc2-log
 	   #:*frpc2-log*
