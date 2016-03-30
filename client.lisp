@@ -68,7 +68,9 @@ Returns the result decoded by RES-DECODER."
   (let ((rmsg (or message (decode-rpc-msg blk))))
     ;; check this reply corresponds to the call
     (unless (= (rpc-msg-xid rmsg) xid)
-      (error 'xdr-error :format-string "XID mismatch"))
+      (error 'xdr-error
+	     :format-string "XID mismatch. Expected ~A received ~A"
+	     :args (list xid (rpc-msg-xid rmsg))))
     
     ;; verify the server
     (let ((verf (rpc-reply-verf rmsg)))
@@ -533,12 +535,16 @@ Returns (values result xid) if a reply was received or nil on timeout."
 	       (setf (udp-client-addr c) raddr
 		     (xdr-block-offset blk) 0
 		     (xdr-block-count blk) count)
-	       (push (list raddr
-			   (decode-rpc-reply blk
-					     res-decoder
-					     xid
-					     (rpc-client-provider c)))
-		     results)))
+	       ;; Some machines return RPC errors from the callit procedure,
+	       ;; It's supposed to be silent on error but I've seen AUTH_TOOWEAK
+	       ;; come back, so we ignore any errors when decoding the reply and discard.
+	       (ignore-errors 
+		 (push (list raddr
+			     (decode-rpc-reply blk
+					       res-decoder
+					       xid
+					       (rpc-client-provider c)))
+		       results))))
 	    (t (setf done t))))))))
 
   
@@ -634,7 +640,17 @@ to the client interface. You can declare it first and define the client and
 server separately."
   `(progn
      (defmacro ,(drx::symbolicate 'define- name '-client) (&rest options)
-       `(define-rpc-client ,',name (,',program ,',version ,@options) ,@',rpcs))
+       (let ((uprog (cadr (assoc :program options)))
+	     (uvers (cadr (assoc :version options))))
+	 `(define-rpc-client ,',name (,(or uprog ',program)
+				       ,(or uvers ',version)
+				       ,@options)
+	    ,@',rpcs)))
      (defmacro ,(drx::symbolicate 'define- name '-server) (&rest options)
-       `(define-rpc-server ,',name (,',program ,',version ,@options) ,@',rpcs))))
+       (let ((uprog (cadr (assoc :program options)))
+	     (uvers (cadr (assoc :version options))))
+	 `(define-rpc-server ,',name (,(or uprog ',program)
+				       ,(or uvers ',version)
+				       ,@options)
+	    ,@',rpcs)))))
 

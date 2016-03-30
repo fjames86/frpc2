@@ -6,7 +6,8 @@
   (:export #:rpcbind 
 	   #:start-rpcbind
 	   #:stop-rpcbind
-	   #:register-program))
+	   #:register-program
+	   #:unregister-program))
 
 (in-package #:rpcbind)
 
@@ -375,4 +376,14 @@ PROVIDERS ::= a list of authentication providers to use.
 				    :protocol :tcp))
   nil)
 
+(defun unregister-program (program-id version-id)
+  (unless *server* (error "RPCBIND server not running."))
+
+  (setf (rpc-server-programs *server*)
+	(remove-if (lambda (p)
+		     (and (= (first p) program-id)
+			  (= (second p) version-id)))
+		   (rpc-server-programs *server*)))
+
+  nil)
 
