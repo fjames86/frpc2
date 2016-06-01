@@ -143,43 +143,50 @@ Returns a list of MAPPING structures."
     (with-rpc-client (c udp-client :addr sin)
       (call-rpcbind-dump c))))
 
-(defun get-rpc-hosts (&optional program version (protocol :udp) broadcast-address)
+(defun get-rpc-hosts (&optional program version protocol broadcast-address)
   "Find a list of hosts for the specified program by broadcasting 
 to the rpcbind service. 
 PROGRAM, VERSION ::= integers specifying the program to search for.
 PROTOCOL ::= The protocol you wish to contact the service on, 
-either :UDP or :TCP.
-BROADCAST-ADDRESS ::= broadcast address to send request to, defaults to 255.255.255.255.
-Note that on FreeBSD UDP broadcasts to INADDR_BROADCAST is not automatically converted
-to the subnet broadcast address as is done on Windows and Linux. On FreeBSD you MUST 
-provide the broadcast address for the subnet you wish to send to. This can be retrieved 
-from fsocket:list-adapters. 
+either :UDP or :TCP. Defaults to :UDP.
+BROADCAST-ADDRESS ::= Explicitly provide broadcast address.
+If not provided will attempt to discover hosts on all broadcast addresses
+listed by fsocket:list-adapters. 
 
 Returns a list of SOCKADDR-IN structs for each host which is 
-advertised as available on the local network. 
-Note that rpcbind is contacted by broadcasting on the 
-local network address 255.255.255.255."
-  (with-rpc-client (c broadcast-client
-                      :addr (fsocket:sockaddr-in (or broadcast-address #(255 255 255 255))
-                                                 +rpcbind-port+))
-    (cond
-      ((and program version)
-       (let ((results (call-rpcbind-getport c
-					    (make-mapping :program program
-							  :version version
-							  :protocol protocol
-							  :port 0))))
-	 (mapcan (lambda (r)
-		   (destructuring-bind (raddr port) r
-		     (unless (zerop port)
-		       (setf (fsocket:sockaddr-in-port raddr) port)
-		       (list raddr))))
-		 results)))
-      (t
-       (let ((results (call-rpcbind-null c)))
-	 (mapcar (lambda (r) 
-		   (fsocket:sockaddr-in-addr (car r)))
-		 results))))))
+advertised as available on the local network."
+  (let ((brd-addrs (if broadcast-address
+                       (list broadcast-address)
+                       (or (mapcan (lambda (ad)
+                                     (mapcar #'fsocket:sockaddr-in-addr (fsocket:adapter-broadcast ad)))
+                                   (fsocket:list-adapters))
+                           (list #(255 255 255 255)))))
+        (results nil))
+    (with-rpc-client (c broadcast-client)
+      (dolist (brd-addr brd-addrs)
+        ;; set the client sending address explicitly 
+        (setf (udp-client-addr c)
+              (fsocket:sockaddr-in brd-addr +rpcbind-port+))
+        (cond
+          ((and program version)
+           (dolist (r (call-rpcbind-getport c
+                                            (make-mapping :program program
+                                                          :version version
+                                                          :protocol (or protocol :udp)
+                                                          :port 0)))
+             (destructuring-bind (raddr port) r
+               (unless (zerop port)
+                 (setf (fsocket:sockaddr-in-port raddr) port)
+                 (pushnew raddr results
+                          :key #'fsocket:sockaddr-in-addr
+                          :test #'equalp)))))
+          (t
+           (dolist (r (call-rpcbind-null c))
+             (pushnew (car r) results
+                      :key #'fsocket:sockaddr-in-addr
+                      :test #'equalp))))))
+    results))
+
 
 
 ;; ------------- RPCBIND versions 3 and 4 -------------------
