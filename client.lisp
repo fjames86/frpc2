@@ -506,11 +506,12 @@ Returns (values result xid) if a reply was received or nil on timeout."
 (defmethod initialize-instance :after ((c broadcast-client) &rest initargs &key &allow-other-keys)
   (declare (ignore initargs))
 
-  #+freebsd(warn "UDP broadcast is unlikely to work on FreeBSD")
-  
   ;; set the socket option
   (setf (fsocket:socket-option (udp-client-fd c) :socket :broadcast) t)
   (unless (udp-client-addr c)
+    ;; On FreeBSD you need to pass in the subnet broadcast address. You can get this from
+    ;; fsocket:list-adapters but you need to know which adapter (interface) you send out from.
+    #+freebsd(warn "Sending to 255.255.255.255 instead of subnet broadcast address.")
     (setf (udp-client-addr c) (fsocket:sockaddr-in #(255 255 255 255) 111))))
 
 (defmethod rpc-client-call ((c broadcast-client) arg-encoder arg res-decoder program version proc)
