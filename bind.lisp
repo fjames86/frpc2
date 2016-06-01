@@ -143,20 +143,25 @@ Returns a list of MAPPING structures."
     (with-rpc-client (c udp-client :addr sin)
       (call-rpcbind-dump c))))
 
-(defun get-rpc-hosts (&optional program version (protocol :udp))
+(defun get-rpc-hosts (&optional program version (protocol :udp) broadcast-address)
   "Find a list of hosts for the specified program by broadcasting 
 to the rpcbind service. 
-PROGRAM, VERSION ::= integers specifying the program.
+PROGRAM, VERSION ::= integers specifying the program to search for.
 PROTOCOL ::= The protocol you wish to contact the service on, 
 either :UDP or :TCP.
+BROADCAST-ADDRESS ::= broadcast address to send request to, defaults to 255.255.255.255.
+Note that on FreeBSD UDP broadcasts to INADDR_BROADCAST is not automatically converted
+to the subnet broadcast address as is done on Windows and Linux. On FreeBSD you MUST 
+provide the broadcast address for the subnet you wish to send to. This can be retrieved 
+from fsocket:list-adapters. 
 
 Returns a list of SOCKADDR-IN structs for each host which is 
 advertised as available on the local network. 
 Note that rpcbind is contacted by broadcasting on the 
 local network address 255.255.255.255."
   (with-rpc-client (c broadcast-client
-		      :addr (fsocket:sockaddr-in #(255 255 255 255)
-						 +rpcbind-port+))
+                      :addr (fsocket:sockaddr-in (or broadcast-address #(255 255 255 255))
+                                                 +rpcbind-port+))
     (cond
       ((and program version)
        (let ((results (call-rpcbind-getport c
