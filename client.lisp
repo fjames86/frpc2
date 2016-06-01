@@ -654,3 +654,102 @@ server separately."
 				       ,@options)
 	    ,@',rpcs)))))
 
+
+
+;; ------------------------ Experiemental IPv6 clients ----------------------
+
+(defclass udp6-client (rpc-client)
+  ((addr :initarg :addr
+	 :initform (fsocket:make-sockaddr-in6 :addr #(0 0 0 0 0 0 0 1) :port 111)
+	 :accessor udp-client-addr)
+   (fd :initarg :fd :initform nil :accessor udp-client-fd)
+   (pc :initarg :pc :initform nil :accessor udp-client-pc)
+   (retry :initform 2 :initarg :retry :accessor udp-client-retry)
+   (timeout :initform 500 :initarg :timeout :accessor udp-client-timeout)))
+
+(defmethod print-object ((u udp6-client) stream)
+  (print-unreadable-object (u stream :type t)
+    (format stream ":ADDR ~A" (udp-client-addr u))))
+
+(defmethod initialize-instance :after ((u udp6-client) &rest initargs &key &allow-other-keys)
+  (declare (ignore initargs))
+  (unless (udp-client-fd u)
+    (setf (udp-client-fd u) (fsocket:open-socket :family :inet6 :type :datagram))
+    (fsocket:socket-bind (udp-client-fd u) (fsocket:make-sockaddr-in6)))
+  
+  (unless (udp-client-pc u)
+    (setf (udp-client-pc u) (fsocket:open-poll))
+    (fsocket:poll-register (udp-client-pc u)
+                           (make-instance 'fsocket:pollfd
+                                          :fd (udp-client-fd u)
+                                          :events (fsocket:poll-events :pollin)))))
+
+(defmethod rpc-client-close ((u udp6-client))
+  (when (udp-client-fd u) (fsocket:close-socket (udp-client-fd u)))
+  (when (udp-client-pc u) (fsocket:close-poll (udp-client-pc u))))
+
+(defmethod rpc-client-send ((u udp6-client))
+  (let ((blk (rpc-client-block u)))
+    (fsocket:socket-sendto (udp-client-fd u)
+			   (xdr-block-buffer blk)
+			   (udp-client-addr u)
+			   :start 0
+			   :end (xdr-block-offset blk))))
+
+(defmethod rpc-client-recv ((u udp6-client))
+  (let ((blk (rpc-client-block u)))
+    (when (udp-client-timeout u)
+      (let ((pfds (fsocket:poll (udp-client-pc u) :timeout (udp-client-timeout u))))
+	;; if nothing received then return
+	(cond 
+	  ((not pfds)
+	   ;; timeout when polling 
+	   nil)
+	  ((not (member :pollin (fsocket:poll-events
+				 (fsocket:pollfd-revents (car pfds)))))
+	   ;; no data ready to read 
+	   nil)
+	  (t 	
+	   (multiple-value-bind (count raddr) (fsocket:socket-recvfrom (udp-client-fd u) (xdr-block-buffer blk))
+	     (setf (udp-client-addr u) raddr
+		   (xdr-block-offset blk) 0
+		   (xdr-block-count blk) count)
+	     blk)))))))
+
+;; we try sending the message until we get a response or run out of retries
+;; each subsequent retry increases the timeout by a factor of 1.5, a number I chose at random
+(defmethod rpc-client-call ((u udp6-client) arg-encoder arg res-decoder program version proc)
+  (do ((n (udp-client-retry u) (1- n))
+       (timeout (udp-client-timeout u) (truncate (* timeout 1.5)))
+       (blk (rpc-client-block u))
+       (provider (rpc-client-provider u))
+       (done nil)
+       (res nil))
+      ((or done (zerop n))
+       (if done 
+	   res
+	   (error 'rpc-timeout-error)))
+    ;; encode the message and send it
+    (reset-xdr-block blk)
+    (let ((xid (encode-rpc-call blk arg-encoder arg 
+				program version proc
+				:provider provider)))
+      (fsocket:socket-sendto (udp-client-fd u)
+			     (xdr-block-buffer blk)
+			     (udp-client-addr u)
+			     :start 0
+			     :end (xdr-block-offset blk))
+      ;; wait for reply 
+      (when (udp-client-timeout u)
+	(cond
+	  ((fsocket:poll (udp-client-pc u) :timeout timeout)
+	   (multiple-value-bind (count raddr) (fsocket:socket-recvfrom (udp-client-fd u) (xdr-block-buffer blk))
+	     (setf (udp-client-addr u) raddr
+		   (xdr-block-offset blk) 0
+		   (xdr-block-count blk) count
+		   res (decode-rpc-reply blk res-decoder xid 
+					 (rpc-client-provider u))
+		   done t)))
+	  (t 
+	   ;; timeout, ... don't need to do anything here
+	   nil))))))
