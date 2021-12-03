@@ -403,7 +403,7 @@ Returns (values result xid) if a reply was received or nil on timeout."
 		   ;; TODO: signal a better error condition 
 		   (error 'rpc-error :msg "Short buffer"))
 		 (let ((c (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer blk)
-					       :start start :end count)))
+					       :start start :end (+ start count))))
 		   (when (zerop c) (error 'rpc-error :msg "Graceful close"))
 		   (incf cnt c)
 		   (incf start c)))))
