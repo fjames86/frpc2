@@ -360,6 +360,10 @@ Returns (values result xid) if a reply was received or nil on timeout."
 	     (error 'rpc-timeout-error)
 	     (return-from rpc-client-safe-poll nil)))))))
 
+(defun send-robust (fd blk start end)
+  (loop while (/= start end)
+        do (incf start (fsocket:socket-send fd (xdr-block-buffer blk) :start start :end end))))
+
 (defmethod rpc-client-call ((tcp tcp-client) arg-encoder arg res-decoder program version proc)
   ;; start by encoding the message
   (reset-xdr-block (rpc-client-block tcp))
@@ -371,15 +375,10 @@ Returns (values result xid) if a reply was received or nil on timeout."
 
     ;; we need to send a fragment count first with the terminal bit set
     (encode-uint32 cblk (logior (xdr-block-offset blk) #x80000000))
-    ;; TODO: check for a short write 
-    (let ((cnt (fsocket:socket-send (tcp-client-fd tcp) (xdr-block-buffer cblk))))
-      (unless (= cnt 4) (error "Short write")))
+    (send-robust (tcp-client-fd tcp) cblk 0 4)
     
     ;; send the fragment payload.
-    ;; TODO: check for short write 
-    (let ((cnt (fsocket:socket-send (tcp-client-fd tcp) (xdr-block-buffer blk)
-				    :start 0 :end (xdr-block-offset blk))))
-      (unless (= cnt (xdr-block-offset blk)) (error "Short write")))
+    (send-robust (tcp-client-fd tcp) blk 0 (xdr-block-offset blk))
 	    
     (let ((start 0))
       (flet ((recv-fragment-count ()
