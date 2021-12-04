@@ -360,9 +360,19 @@ Returns (values result xid) if a reply was received or nil on timeout."
 	     (error 'rpc-timeout-error)
 	     (return-from rpc-client-safe-poll nil)))))))
 
+(defconstant +eagain+ 11)
+
 (defun send-robust (fd blk start end)
-  (loop while (/= start end)
-        do (incf start (fsocket:socket-send fd (xdr-block-buffer blk) :start start :end end))))
+  (loop
+     while (/= start end)
+     do (incf start
+	      (block try
+		(handler-bind
+		    ((fsocket:posix-error (lambda (e)
+					    (when (eql (fsocket:posix-error-code e) +eagain+)
+					      (sleep 0.01)
+					      (return-from try 0)))))
+		  (fsocket:socket-send fd (xdr-block-buffer blk) :start start :end end))))))
 
 (defmethod rpc-client-call ((tcp tcp-client) arg-encoder arg res-decoder program version proc)
   ;; start by encoding the message
@@ -403,7 +413,7 @@ Returns (values result xid) if a reply was received or nil on timeout."
 		   ;; TODO: signal a better error condition 
 		   (error 'rpc-error :msg "Short buffer"))
 		 (let ((c (fsocket:socket-recv (tcp-client-fd tcp) (xdr-block-buffer blk)
-					       :start start :end count)))
+					       :start start :end (+ start count))))
 		   (when (zerop c) (error 'rpc-error :msg "Graceful close"))
 		   (incf cnt c)
 		   (incf start c)))))
