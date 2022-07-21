@@ -4,7 +4,7 @@
 (in-package #:frpc2)
 
 ;; we want a funciton which will encode a call and decode a reply
-(declaim (ftype (function (xdr-block (or function symbol) * integer integer integer
+(declaim (ftype (function (xdr-block (or function symbol) t integer integer integer
 				     &key (:provider (or null client-provider)) (:xid (or null integer)))
 			  integer)
 		encode-rpc-call))
@@ -105,7 +105,7 @@ Returns the result decoded by RES-DECODER."
 (defgeneric rpc-client-call (client arg-encoder arg res-decoder program version proc)
   (:documentation "Execute an RPC and await a reply. Returns the result of the call."))
 
-(declaim (ftype (function (rpc-client (or function symbol) * (or function symbol) integer integer integer)
+(declaim (ftype (function (rpc-client (or function symbol) t (or function symbol) integer integer integer)
 			  *)
 		rpc-call))
 (defun call-rpc (client arg-encoder arg res-decoder program version proc)
@@ -126,7 +126,7 @@ Blocks until a reply is received. Returns the procedure result."
 (defgeneric rpc-client-send (client)
   (:documentation "Send the client block and return immediately."))
 
-(declaim (ftype (function (rpc-client (or function symbol) * (or function symbol) integer integer integer)
+(declaim (ftype (function (rpc-client (or function symbol) t (or function symbol) integer integer integer)
 			  integer)
 		send-rpc))
 (defun send-rpc (client arg-encoder arg res-decoder program version proc)
